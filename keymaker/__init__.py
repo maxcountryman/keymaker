@@ -274,6 +274,9 @@ def install(args):
     with open("/etc/cron.d/keymaker-group-sync", "w") as fh:
         print("*/5 * * * * root /usr/local/bin/keymaker sync_groups", file=fh)
 
+    with open("/etc/cron.d/keymaker-user-sync", "w") as fh:
+        print("*/5 * * * * root /usr/local/bin/keymaker sync_users 2>&1 | /usr/bin/logger -t sync_users", file=fh)
+
 def err_exit(msg, code=3):
     print(msg, file=sys.stderr)
     exit(code)
@@ -417,3 +420,23 @@ def sync_groups(args):
             if unix_user_name not in user_names_in_iam_group:
                 logger.info("Removing user %s from group %s", unix_user_name, unix_group_name)
                 subprocess.check_call(["gpasswd", "--delete", unix_user_name, unix_group_name])  # nosec
+
+def sync_users(args):
+    # TODO: This does not currently support the account resolver pattern.
+    iam_resource = boto3.resource("iam")
+
+    for user in iam_resource.users.all():
+        # TODO: Skip users that don't belong to the authorized group if one is
+        # set.
+
+        user_name = user.name
+        logger.info("Syncing IAM user %s", user_name)
+
+        create_user_script = "/usr/local/bin/keymaker-create-account-for-iam-user"
+        subprocess.check_call(
+            [create_user_script],
+            env={
+                "PAM_USER": user_name,
+                "PAM_SUCCESS": "0",
+            },
+        )
